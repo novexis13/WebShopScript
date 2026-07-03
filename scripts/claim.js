@@ -203,7 +203,8 @@ async function claimFrequency(page, frequency) {
       await dismissCommonPopups(page);
     }
 
-    await waitForRewardCatalog(page, marker);
+    await openFrequencyTab(page, frequency);
+    await waitForRewardCatalog(page, marker, frequency);
 
     if (DRY_RUN) {
       const rewards = await findFrequencyRewards(page, marker);
@@ -244,7 +245,7 @@ async function findFrequencyReward(page, marker) {
   return rewards[0] ?? null;
 }
 
-async function waitForRewardCatalog(page, marker) {
+async function waitForRewardCatalog(page, marker, frequency) {
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     const rewards = await findFrequencyRewards(page, marker);
     if (rewards.length > 0) return;
@@ -254,6 +255,7 @@ async function waitForRewardCatalog(page, marker) {
 
     if (/登録されている商品がありません|総計\s*0/.test(bodyText)) {
       console.log(`Reward catalog is empty; waiting for shop data (${attempt}/4)...`);
+      await openFrequencyTab(page, frequency);
       await page.waitForTimeout(5000);
       await gotoShop(page);
       await dismissCommonPopups(page);
@@ -262,6 +264,23 @@ async function waitForRewardCatalog(page, marker) {
 
     await page.waitForTimeout(3000);
   }
+}
+
+async function openFrequencyTab(page, frequency) {
+  const tabText = frequency === 'daily' ? '毎日プレゼントガチャ' : null;
+  if (!tabText) return false;
+
+  const tab = page
+    .locator('button:visible, a:visible, [role="button"]:visible')
+    .filter({ hasText: tabText })
+    .first();
+
+  if (!(await tab.isVisible().catch(() => false))) return false;
+
+  console.log(`Opening reward tab: ${tabText}`);
+  await tab.click().catch(() => {});
+  await page.waitForTimeout(2000);
+  return true;
 }
 
 async function findFrequencyRewards(page, marker) {
