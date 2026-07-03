@@ -183,6 +183,13 @@ async function claimFrequency(page, frequency) {
     await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
     await dismissCommonPopups(page);
 
+    if (await pageShowsLoginEntry(page)) {
+      console.log('Login entry is visible before searching rewards. Trying automatic login...');
+      await loginWithCredentials(page);
+      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await dismissCommonPopups(page);
+    }
+
     if (DRY_RUN) {
       const rewards = await findFrequencyRewards(page, marker);
       if (rewards.length === 0) {
@@ -259,6 +266,8 @@ async function findFrequencyRewards(page, marker) {
 
 async function logRewardCandidates(page, marker) {
   console.log('Reward candidate debug:');
+  console.log(`URL: ${page.url()}`);
+  console.log(`Title: ${await page.title().catch(() => '<unavailable>')}`);
 
   const buttonTexts = await page
     .locator('button:visible, [role="button"]:visible')
@@ -279,6 +288,14 @@ async function logRewardCandidates(page, marker) {
     console.log('No related visible buttons found.');
   }
 
+  const allButtons = buttonTexts.map(normalize).filter(Boolean).slice(0, 40);
+  if (allButtons.length > 0) {
+    console.log('All visible buttons:');
+    for (const text of allButtons) {
+      console.log(`- ${truncate(text, 180)}`);
+    }
+  }
+
   const bodyText = normalize(await page.locator('body').innerText().catch(() => ''));
   const relatedLines = bodyText
     .split(/(?=\[[^\]]+\])|(?=報酬)|(?=マイレージ)|(?=獲得)|(?=完了)/)
@@ -291,6 +308,8 @@ async function logRewardCandidates(page, marker) {
     for (const text of relatedLines) {
       console.log(`- ${truncate(text, 300)}`);
     }
+  } else if (bodyText) {
+    console.log(`Visible page text excerpt: ${truncate(bodyText, 1600)}`);
   }
 }
 
@@ -459,6 +478,17 @@ async function pageShowsLoginRequired(page) {
   return /(ログイン後にご利用いただけます|ログインしてください|ログインが必要|please log in|sign in required)/i.test(
     `${modalText} ${bodyText}`,
   );
+}
+
+async function pageShowsLoginEntry(page) {
+  if (!hasLoginCredentials) return false;
+
+  const loginButton = page
+    .locator('button:visible, a:visible, [role="button"]:visible')
+    .filter({ hasText: /ログイン|login|sign in/i })
+    .first();
+
+  return loginButton.isVisible().catch(() => false);
 }
 
 async function loginWithCredentials(page) {
