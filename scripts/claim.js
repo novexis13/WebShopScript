@@ -12,11 +12,11 @@ const PAUSE_AFTER_DONE = Number(process.env.PAUSE_AFTER_DONE ?? 0);
 const NETMARBLE_EMAIL = process.env.NETMARBLE_EMAIL ?? '';
 const NETMARBLE_PASSWORD = process.env.NETMARBLE_PASSWORD ?? '';
 
-// 受け取り対象名は npm scripts、CLI 引数、ITEM_NAMES のいずれからでも指定できます。
-const items = parseItems(process.argv.slice(2));
+// 受け取り対象は、商品名指定または daily/weekly の頻度指定で受け取ります。
+const targets = parseTargets(process.argv.slice(2));
 
-if (items.length === 0) {
-  console.error('No item specified. Use --item "毎日の魔法石ガチャ".');
+if (targets.length === 0) {
+  console.error('No target specified. Use --frequency daily or --item "商品名".');
   process.exit(2);
 }
 
@@ -45,9 +45,14 @@ try {
   await dismissCommonPopups(page);
   await ensureLoggedIn(page);
 
-  for (const itemName of items) {
-    console.log(`\n== Claiming: ${itemName} ==`);
-    await claimItem(page, itemName);
+  for (const target of targets) {
+    if (target.type === 'frequency') {
+      console.log(`\n== Claiming ${target.frequency} free rewards ==`);
+      await claimFrequency(page, target.frequency);
+    } else {
+      console.log(`\n== Claiming: ${target.itemName} ==`);
+      await claimItem(page, target.itemName);
+    }
   }
 } catch (error) {
   console.error('\nClaim failed.');
@@ -62,22 +67,44 @@ try {
   await browser.close();
 }
 
-function parseItems(args) {
-  // --item を複数指定できるようにして、daily と weekly の同時実行にも対応します。
+function parseTargets(args) {
+  // --frequency と --item を複数指定できるようにして、まとめて受け取れるようにします。
   const parsed = [];
 
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--item' && args[index + 1]) {
-      parsed.push(args[index + 1]);
+      parsed.push({ type: 'item', itemName: args[index + 1] });
+      index += 1;
+      continue;
+    }
+
+    if (args[index] === '--frequency' && args[index + 1]) {
+      const frequency = args[index + 1].toLowerCase();
+      if (!['daily', 'weekly'].includes(frequency)) {
+        throw new Error(`Unsupported frequency: ${frequency}`);
+      }
+
+      parsed.push({ type: 'frequency', frequency });
       index += 1;
     }
   }
 
   if (process.env.ITEM_NAMES) {
-    parsed.push(...process.env.ITEM_NAMES.split(',').map((item) => item.trim()).filter(Boolean));
+    parsed.push(
+      ...process.env.ITEM_NAMES.split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((itemName) => ({ type: 'item', itemName })),
+    );
   }
 
-  return [...new Set(parsed)];
+  const seen = new Set();
+  return parsed.filter((target) => {
+    const key = target.type === 'frequency' ? `frequency:${target.frequency}` : `item:${target.itemName}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function claimItem(page, itemName) {
@@ -106,7 +133,7 @@ async function claimItem(page, itemName) {
     const actionText = normalize(await action.innerText().catch(() => ''));
     console.log(`Action: ${actionText || '<icon/button>'}`);
 
-    if (/(完了|獲得完了|受け取りました|獲得しました|already|すでに)/i.test(actionText)) {
+    if (isCompletedText(actionText)) {
       console.log(`Already completed: ${itemName}`);
       return;
     }
@@ -143,6 +170,156 @@ async function claimItem(page, itemName) {
 
     await dismissCommonPopups(page);
     console.log(`Done: ${itemName}`);
+    return;
+  }
+}
+
+async function claimFrequency(page, frequency) {
+  const label = frequency === 'daily' ? '1日1回' : '週1回';
+  const marker = frequency === 'daily' ? /1日1回/ : /週1回/;
+  let claimedAny = false;
+
+  for (let index = 0; index < 5; index += 1) {
+    await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+    await dismissCommonPopups(page);
+
+    if (DRY_RUN) {
+      const rewards = await findFrequencyRewards(page, marker);
+      if (rewards.length === 0) {
+        console.log(`No actionable ${label} free reward found.`);
+        return;
+      }
+
+      for (const reward of rewards) {
+        const actionText = normalize(await reward.action.innerText().catch(() => ''));
+        console.log(`Detected ${label} reward: ${reward.name}`);
+        console.log(`Action: ${actionText || '<icon/button>'}`);
+      }
+      console.log('DRY_RUN=true, skipping clicks.');
+      return;
+    }
+
+    const found = await findFrequencyReward(page, marker);
+    if (!found) {
+      if (!claimedAny) {
+        console.log(`No actionable ${label} free reward found.`);
+      }
+      return;
+    }
+
+    console.log(`\n== Claiming detected ${label} reward: ${found.name} ==`);
+    await claimDetectedReward(page, found.name, found.card, found.action, marker);
+    claimedAny = true;
+  }
+
+  console.log(`Stopped after checking multiple ${label} rewards.`);
+}
+
+async function findFrequencyReward(page, marker) {
+  const rewards = await findFrequencyRewards(page, marker);
+  return rewards[0] ?? null;
+}
+
+async function findFrequencyRewards(page, marker) {
+  const rewards = [];
+  const buttons = page
+    .locator('button:visible, [role="button"]:visible')
+    .filter({ hasText: marker });
+  const count = await buttons.count().catch(() => 0);
+
+  for (let index = 0; index < count; index += 1) {
+    const action = buttons.nth(index);
+    const actionText = normalize(await action.innerText().catch(() => ''));
+
+    if (!/(獲得|受け取り|ガチャ|claim|free|マイレージ)/i.test(actionText)) continue;
+    if (isCompletedText(actionText)) continue;
+
+    const card = action.locator(
+      'xpath=ancestor::*[self::li or self::article or self::section or self::div][.//button or @role="button" or .//a][1]',
+    );
+    const cardText = normalize(await card.innerText().catch(() => actionText));
+
+    try {
+      assertFreeClaimSurface(actionText, cardText);
+    } catch (error) {
+      console.log(`Skipping candidate that did not pass safety check: ${truncate(cardText, 200)}`);
+      continue;
+    }
+
+    rewards.push({
+      action,
+      card,
+      name: extractRewardName(cardText, actionText),
+    });
+  }
+
+  return rewards;
+}
+
+function extractRewardName(cardText, fallback) {
+  const normalized = normalize(cardText);
+  const firstLine = normalized.split(/ 報酬| マイレージ| 獲得| 受け取り/)[0];
+  return truncate(firstLine || fallback, 120);
+}
+
+async function claimDetectedReward(page, rewardName, card, action, marker) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const actionText = normalize(await action.innerText().catch(() => ''));
+    console.log(`Action: ${actionText || '<icon/button>'}`);
+
+    if (isCompletedText(actionText)) {
+      console.log(`Already completed: ${rewardName}`);
+      return;
+    }
+
+    if (DRY_RUN) {
+      console.log('DRY_RUN=true, skipping click.');
+      return;
+    }
+
+    await action.click();
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await dismissCommonPopups(page);
+
+    if (await pageShowsLoginRequired(page)) {
+      if (attempt === 2) {
+        throw new Error('Login is still required after automatic login.');
+      }
+
+      console.log('Login required. Trying automatic login...');
+      await loginWithCredentials(page);
+      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await dismissCommonPopups(page);
+
+      const refreshed = await findFrequencyReward(page, marker);
+      if (refreshed) {
+        action = refreshed.action;
+        card = refreshed.card;
+      }
+      continue;
+    }
+
+    const confirmResult = await confirmFreeFlow(page);
+    if (confirmResult === 'login-required') {
+      if (attempt === 2) {
+        throw new Error('Login is still required after automatic login.');
+      }
+
+      console.log('Login required during confirmation. Trying automatic login...');
+      await loginWithCredentials(page);
+      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await dismissCommonPopups(page);
+
+      const refreshed = await findFrequencyReward(page, marker);
+      if (refreshed) {
+        action = refreshed.action;
+        card = refreshed.card;
+      }
+      continue;
+    }
+
+    await dismissCommonPopups(page);
+    console.log(`Done: ${rewardName}`);
     return;
   }
 }
@@ -215,7 +392,7 @@ async function confirmFreeFlow(page) {
     const button = await firstVisibleModalButton(page, steps);
     if (button) {
       const buttonText = normalize(await button.innerText().catch(() => ''));
-      if (/(完了|獲得完了|受け取りました|獲得しました|already|すでに)/i.test(buttonText)) {
+      if (isCompletedText(buttonText)) {
         console.log(`Completion button/state detected: ${buttonText}`);
         return 'done';
       }
@@ -227,7 +404,7 @@ async function confirmFreeFlow(page) {
     }
 
     const visibleText = normalize(await page.locator('body').innerText().catch(() => ''));
-    if (/(完了|受け取りました|獲得しました|already|すでに|本日は|今週)/i.test(visibleText)) {
+    if (isCompletedText(visibleText) || /(本日は|今週)/i.test(visibleText)) {
       console.log('Completion or already-claimed message detected.');
       return 'done';
     }
@@ -487,6 +664,10 @@ async function logDebugState(page) {
 function containsAny(text, needles) {
   const lower = text.toLowerCase();
   return needles.some((needle) => lower.includes(String(needle).toLowerCase()));
+}
+
+function isCompletedText(text) {
+  return /(完了|獲得完了|受け取りました|獲得しました|already|すでに|claimed)/i.test(text);
 }
 
 function truncate(text, maxLength) {

@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "claim:daily": "node scripts/claim.js --item \"毎日の魔法石ガチャ\"",
-    "claim:weekly": "node scripts/claim.js --item \"ラグジュアリーガチャ\"",
-    "claim:both": "node scripts/claim.js --item \"毎日の魔法石ガチャ\" --item \"ラグジュアリーガチャ\"",
+    "claim:daily": "node scripts/claim.js --frequency daily",
+    "claim:weekly": "node scripts/claim.js --frequency weekly",
+    "claim:both": "node scripts/claim.js --frequency daily --frequency weekly",
     "login": "node scripts/save-login.js"
   },
   "dependencies": {

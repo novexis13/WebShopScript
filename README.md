@@ -1,13 +1,14 @@
 # Netmarble Shop 自動受け取り
 
-Netmarble Shop 日本版で、次の無料受け取りを GitHub Actions から自動実行します。
+Netmarble Shop 日本版で、無料受け取り枠を GitHub Actions から自動実行します。
 
-- 毎日: `毎日の魔法石ガチャ`
-- 毎週: `ラグジュアリーガチャ`
+- 毎日: `[1日1回]` と表示される無料獲得商品
+- 毎週: `[週1回]` と表示される無料獲得商品
 
 ## 仕組み
 
 - Playwright で `https://slvshop.netmarble.com/ja/item` を開きます。
+- 商品名ではなく `[1日1回]` / `[週1回]` の獲得ボタンを探すため、無料商品の名前が変わっても追従しやすくしています。
 - ログイン済みセッションがあれば `PLAYWRIGHT_STORAGE_STATE_BASE64` を使います。
 - ログイン状態でない場合は `NETMARBLE_EMAIL` / `NETMARBLE_PASSWORD` で自動ログインを試みます。
 - GitHub Actions は `workflow_dispatch` で起動します。
@@ -94,8 +95,8 @@ Fine-grained PAT は、このリポジトリだけに絞って作成します。
 
 外部 cron サービス側で次の日本時間に設定します。
 
-- 毎日 09:37 JST: `毎日の魔法石ガチャ`
-- 毎週 木曜 09:42 JST: `ラグジュアリーガチャ`
+- 毎日 09:37 JST: `[1日1回]` の無料獲得商品
+- 毎週 木曜 09:42 JST: `[週1回]` の無料獲得商品
 
 GitHub Actions の `schedule` 遅延を避けるため、GitHub 側の cron は使いません。時刻を変える場合は、外部 cron サービス側の設定を変更してください。
 
