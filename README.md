@@ -11,6 +11,7 @@ Netmarble Shop 日本版で、無料受け取り枠を GitHub Actions から自�
 - 商品名ではなく `[1日1回]` / `[週1回]` の獲得ボタンを探すため、無料商品の名前が変わっても追従しやすくしています。
 - ログイン済みセッションがあれば `PLAYWRIGHT_STORAGE_STATE_BASE64` を使います。
 - ログイン状態でない場合は `NETMARBLE_EMAIL` / `NETMARBLE_PASSWORD` で自動ログインを試みます。
+- GitHub Actions は海外 IP で動くことがあるため、ログイン時の `countryCode` は `JP` に補正します。
 - GitHub Actions は `workflow_dispatch` で起動します。
 - 定刻実行は GitHub Actions の `schedule` ではなく、外部 cron サービスから GitHub API を叩きます。
 - メールアドレス、パスワード、Cookie はコードに直接書きません。

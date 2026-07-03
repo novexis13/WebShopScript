@@ -22,6 +22,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       NETMARBLE_EMAIL: ${{ secrets.NETMARBLE_EMAIL }}
       NETMARBLE_PASSWORD: ${{ secrets.NETMARBLE_PASSWORD }}
+      NETMARBLE_COUNTRY_CODE: JP
 
     steps:
       - name: Checkout

@@ -11,6 +11,7 @@ const SLOW_MO = Number(process.env.SLOW_MO ?? 0);
 const PAUSE_AFTER_DONE = Number(process.env.PAUSE_AFTER_DONE ?? 0);
 const NETMARBLE_EMAIL = process.env.NETMARBLE_EMAIL ?? '';
 const NETMARBLE_PASSWORD = process.env.NETMARBLE_PASSWORD ?? '';
+const NETMARBLE_COUNTRY_CODE = process.env.NETMARBLE_COUNTRY_CODE ?? 'JP';
 
 // 受け取り対象は、商品名指定または daily/weekly の頻度指定で受け取ります。
 const targets = parseTargets(process.argv.slice(2));
@@ -567,6 +568,8 @@ async function openLoginPage(page) {
 }
 
 async function fillLoginForm(page) {
+  await forceLoginCountry(page);
+
   const emailInput = page
     .locator(
       'input[type="email"], input[name*="email" i], input[id*="email" i], input[placeholder*="メール"], input[placeholder*="mail" i], input[placeholder*="email" i]',
@@ -638,7 +641,24 @@ async function openEmailLoginFromModal(page) {
   await emailSignIn.click();
   await page.waitForLoadState('domcontentloaded').catch(() => {});
   await page.waitForTimeout(2000);
+  await forceLoginCountry(page);
   return true;
+}
+
+async function forceLoginCountry(page) {
+  const currentUrl = page.url();
+  if (!/mobileauth-view\.netmarble\.com/.test(currentUrl) || !currentUrl.includes('countryCode=')) {
+    return;
+  }
+
+  const url = new URL(currentUrl);
+  const currentCountry = url.searchParams.get('countryCode');
+  if (currentCountry === NETMARBLE_COUNTRY_CODE) return;
+
+  url.searchParams.set('countryCode', NETMARBLE_COUNTRY_CODE);
+  console.log(`Adjusting Netmarble login countryCode: ${currentCountry} -> ${NETMARBLE_COUNTRY_CODE}`);
+  await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForTimeout(1500);
 }
 
 async function waitForLoggedIn(page) {
