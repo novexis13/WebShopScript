@@ -41,7 +41,7 @@ const page = await context.newPage();
 
 try {
   page.setDefaultTimeout(20_000);
-  await page.goto(SHOP_URL, { waitUntil: 'domcontentloaded' });
+  await gotoShop(page);
   await dismissCommonPopups(page);
   await ensureLoggedIn(page);
 
@@ -107,9 +107,15 @@ function parseTargets(args) {
   });
 }
 
+async function gotoShop(page) {
+  await page.goto(SHOP_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  await page.waitForTimeout(1500);
+}
+
 async function claimItem(page, itemName) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+    await gotoShop(page);
     await dismissCommonPopups(page);
 
     // まず商品名を見つけ、その周辺にあるクリック可能な商品カードを探します。
@@ -180,13 +186,13 @@ async function claimFrequency(page, frequency) {
   let claimedAny = false;
 
   for (let index = 0; index < 5; index += 1) {
-    await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+    await gotoShop(page);
     await dismissCommonPopups(page);
 
     if (await pageShowsLoginEntry(page)) {
       console.log('Login entry is visible before searching rewards. Trying automatic login...');
       await loginWithCredentials(page);
-      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await gotoShop(page);
       await dismissCommonPopups(page);
     }
 
@@ -345,7 +351,7 @@ async function claimDetectedReward(page, rewardName, card, action, marker) {
 
       console.log('Login required. Trying automatic login...');
       await loginWithCredentials(page);
-      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await gotoShop(page);
       await dismissCommonPopups(page);
 
       const refreshed = await findFrequencyReward(page, marker);
@@ -364,7 +370,7 @@ async function claimDetectedReward(page, rewardName, card, action, marker) {
 
       console.log('Login required during confirmation. Trying automatic login...');
       await loginWithCredentials(page);
-      await page.goto(SHOP_URL, { waitUntil: 'networkidle' });
+      await gotoShop(page);
       await dismissCommonPopups(page);
 
       const refreshed = await findFrequencyReward(page, marker);
