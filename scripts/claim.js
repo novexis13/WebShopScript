@@ -203,6 +203,7 @@ async function claimFrequency(page, frequency) {
     if (!found) {
       if (!claimedAny) {
         console.log(`No actionable ${label} free reward found.`);
+        await logRewardCandidates(page, marker);
       }
       return;
     }
@@ -254,6 +255,43 @@ async function findFrequencyRewards(page, marker) {
   }
 
   return rewards;
+}
+
+async function logRewardCandidates(page, marker) {
+  console.log('Reward candidate debug:');
+
+  const buttonTexts = await page
+    .locator('button:visible, [role="button"]:visible')
+    .evaluateAll((buttons) => buttons.map((button) => button.innerText || button.textContent || '').filter(Boolean))
+    .catch(() => []);
+
+  const relatedButtons = buttonTexts
+    .map(normalize)
+    .filter((text) => marker.test(text) || /(獲得|受け取り|ガチャ|マイレージ|完了|無料|claim|free)/i.test(text))
+    .slice(0, 30);
+
+  if (relatedButtons.length > 0) {
+    console.log('Related visible buttons:');
+    for (const text of relatedButtons) {
+      console.log(`- ${truncate(text, 240)}`);
+    }
+  } else {
+    console.log('No related visible buttons found.');
+  }
+
+  const bodyText = normalize(await page.locator('body').innerText().catch(() => ''));
+  const relatedLines = bodyText
+    .split(/(?=\[[^\]]+\])|(?=報酬)|(?=マイレージ)|(?=獲得)|(?=完了)/)
+    .map(normalize)
+    .filter((text) => marker.test(text) || /(獲得|受け取り|ガチャ|マイレージ|完了|無料|claim|free)/i.test(text))
+    .slice(0, 20);
+
+  if (relatedLines.length > 0) {
+    console.log('Related page text:');
+    for (const text of relatedLines) {
+      console.log(`- ${truncate(text, 300)}`);
+    }
+  }
 }
 
 function extractRewardName(cardText, fallback) {
