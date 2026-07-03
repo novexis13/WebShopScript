@@ -196,6 +196,8 @@ async function claimFrequency(page, frequency) {
       await dismissCommonPopups(page);
     }
 
+    await waitForRewardCatalog(page, marker);
+
     if (DRY_RUN) {
       const rewards = await findFrequencyRewards(page, marker);
       if (rewards.length === 0) {
@@ -232,6 +234,26 @@ async function claimFrequency(page, frequency) {
 async function findFrequencyReward(page, marker) {
   const rewards = await findFrequencyRewards(page, marker);
   return rewards[0] ?? null;
+}
+
+async function waitForRewardCatalog(page, marker) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const rewards = await findFrequencyRewards(page, marker);
+    if (rewards.length > 0) return;
+
+    const bodyText = normalize(await page.locator('body').innerText().catch(() => ''));
+    if (isCompletedText(bodyText) || marker.test(bodyText)) return;
+
+    if (/登録されている商品がありません|総計\s*0/.test(bodyText)) {
+      console.log(`Reward catalog is empty; waiting for shop data (${attempt}/4)...`);
+      await page.waitForTimeout(5000);
+      await gotoShop(page);
+      await dismissCommonPopups(page);
+      continue;
+    }
+
+    await page.waitForTimeout(3000);
+  }
 }
 
 async function findFrequencyRewards(page, marker) {
