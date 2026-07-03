@@ -185,9 +185,15 @@ async function claimFrequency(page, frequency) {
   const label = frequency === 'daily' ? '1日1回' : '週1回';
   const marker = frequency === 'daily' ? /1日1回/ : /週1回/;
   let claimedAny = false;
+  let shouldNavigate = true;
 
   for (let index = 0; index < 5; index += 1) {
-    await gotoShop(page);
+    if (shouldNavigate) {
+      await gotoShop(page);
+    } else {
+      await page.waitForTimeout(1000);
+    }
+
     await dismissCommonPopups(page);
 
     if (await pageShowsLoginEntry(page)) {
@@ -227,6 +233,7 @@ async function claimFrequency(page, frequency) {
     console.log(`\n== Claiming detected ${label} reward: ${found.name} ==`);
     await claimDetectedReward(page, found.name, found.card, found.action, marker);
     claimedAny = true;
+    shouldNavigate = false;
   }
 
   console.log(`Stopped after checking multiple ${label} rewards.`);
