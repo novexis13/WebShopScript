@@ -184,6 +184,7 @@ async function claimItem(page, itemName) {
 async function claimFrequency(page, frequency) {
   const label = frequency === 'daily' ? '1日1回' : '週1回';
   const marker = frequency === 'daily' ? /1日1回/ : /週1回/;
+  const rewardPattern = rewardPatternForFrequency(frequency);
   let claimedAny = false;
   let shouldNavigate = true;
 
@@ -204,12 +205,12 @@ async function claimFrequency(page, frequency) {
     }
 
     await openFrequencyTab(page, frequency);
-    await waitForRewardCatalog(page, marker, frequency);
+    await waitForRewardCatalog(page, marker, rewardPattern, frequency);
 
     if (DRY_RUN) {
-      const rewards = await findFrequencyRewards(page, marker);
+      const rewards = await findFrequencyRewards(page, marker, rewardPattern);
       if (rewards.length === 0) {
-        console.log(`No actionable ${label} free reward found.`);
+        console.log(`No actionable ${label} magic stone reward found.`);
         return;
       }
 
@@ -222,17 +223,17 @@ async function claimFrequency(page, frequency) {
       return;
     }
 
-    const found = await findFrequencyReward(page, marker);
+    const found = await findFrequencyReward(page, marker, rewardPattern);
     if (!found) {
       if (!claimedAny) {
-        console.log(`No actionable ${label} free reward found.`);
-        await logRewardCandidates(page, marker);
+        console.log(`No actionable ${label} magic stone reward found.`);
+        await logRewardCandidates(page, marker, rewardPattern);
       }
       return;
     }
 
     console.log(`\n== Claiming detected ${label} reward: ${found.name} ==`);
-    await claimDetectedReward(page, found.name, found.card, found.action, marker);
+    await claimDetectedReward(page, found.name, found.card, found.action, marker, rewardPattern);
     claimedAny = true;
     shouldNavigate = false;
   }
@@ -240,14 +241,23 @@ async function claimFrequency(page, frequency) {
   console.log(`Stopped after checking multiple ${label} rewards.`);
 }
 
-async function findFrequencyReward(page, marker) {
-  const rewards = await findFrequencyRewards(page, marker);
+function rewardPatternForFrequency(frequency) {
+  return frequency === 'daily' ? /魔法石/ : /魔法石|ラグジュアリー/;
+}
+
+function isTargetRewardText(text, marker, rewardPattern) {
+  // マイレージは受け取らず、魔法石系または旧週次名のラグジュアリーだけを対象にします。
+  return marker.test(text) && rewardPattern.test(text) && !/マイレージ/.test(text);
+}
+
+async function findFrequencyReward(page, marker, rewardPattern) {
+  const rewards = await findFrequencyRewards(page, marker, rewardPattern);
   return rewards[0] ?? null;
 }
 
-async function waitForRewardCatalog(page, marker, frequency) {
+async function waitForRewardCatalog(page, marker, rewardPattern, frequency) {
   for (let attempt = 1; attempt <= 4; attempt += 1) {
-    const rewards = await findFrequencyRewards(page, marker);
+    const rewards = await findFrequencyRewards(page, marker, rewardPattern);
     if (rewards.length > 0) return;
 
     const bodyText = normalize(await page.locator('body').innerText().catch(() => ''));
@@ -283,7 +293,7 @@ async function openFrequencyTab(page, frequency) {
   return true;
 }
 
-async function findFrequencyRewards(page, marker) {
+async function findFrequencyRewards(page, marker, rewardPattern) {
   const rewards = [];
   const buttons = page
     .locator('button:visible, [role="button"]:visible')
@@ -301,6 +311,11 @@ async function findFrequencyRewards(page, marker) {
       'xpath=ancestor::*[self::li or self::article or self::section or self::div][.//button or @role="button" or .//a][1]',
     );
     const cardText = normalize(await card.innerText().catch(() => actionText));
+    const candidateText = `${cardText} ${actionText}`;
+
+    if (!isTargetRewardText(candidateText, marker, rewardPattern)) {
+      continue;
+    }
 
     try {
       assertFreeClaimSurface(actionText, cardText);
@@ -319,7 +334,7 @@ async function findFrequencyRewards(page, marker) {
   return rewards;
 }
 
-async function logRewardCandidates(page, marker) {
+async function logRewardCandidates(page, marker, rewardPattern) {
   console.log('Reward candidate debug:');
   console.log(`URL: ${page.url()}`);
   console.log(`Title: ${await page.title().catch(() => '<unavailable>')}`);
@@ -331,7 +346,7 @@ async function logRewardCandidates(page, marker) {
 
   const relatedButtons = buttonTexts
     .map(normalize)
-    .filter((text) => marker.test(text) || /(獲得|受け取り|ガチャ|マイレージ|完了|無料|claim|free)/i.test(text))
+    .filter((text) => isTargetRewardText(text, marker, rewardPattern) || /(獲得|受け取り|ガチャ|完了|無料|claim|free)/i.test(text))
     .slice(0, 30);
 
   if (relatedButtons.length > 0) {
@@ -355,7 +370,7 @@ async function logRewardCandidates(page, marker) {
   const relatedLines = bodyText
     .split(/(?=\[[^\]]+\])|(?=報酬)|(?=マイレージ)|(?=獲得)|(?=完了)/)
     .map(normalize)
-    .filter((text) => marker.test(text) || /(獲得|受け取り|ガチャ|マイレージ|完了|無料|claim|free)/i.test(text))
+    .filter((text) => isTargetRewardText(text, marker, rewardPattern) || /(獲得|受け取り|ガチャ|完了|無料|claim|free)/i.test(text))
     .slice(0, 20);
 
   if (relatedLines.length > 0) {
@@ -374,7 +389,7 @@ function extractRewardName(cardText, fallback) {
   return truncate(firstLine || fallback, 120);
 }
 
-async function claimDetectedReward(page, rewardName, card, action, marker) {
+async function claimDetectedReward(page, rewardName, card, action, marker, rewardPattern) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const actionText = normalize(await action.innerText().catch(() => ''));
     console.log(`Action: ${actionText || '<icon/button>'}`);
@@ -403,7 +418,7 @@ async function claimDetectedReward(page, rewardName, card, action, marker) {
       await gotoShop(page);
       await dismissCommonPopups(page);
 
-      const refreshed = await findFrequencyReward(page, marker);
+      const refreshed = await findFrequencyReward(page, marker, rewardPattern);
       if (refreshed) {
         action = refreshed.action;
         card = refreshed.card;
@@ -422,7 +437,7 @@ async function claimDetectedReward(page, rewardName, card, action, marker) {
       await gotoShop(page);
       await dismissCommonPopups(page);
 
-      const refreshed = await findFrequencyReward(page, marker);
+      const refreshed = await findFrequencyReward(page, marker, rewardPattern);
       if (refreshed) {
         action = refreshed.action;
         card = refreshed.card;
