@@ -15,7 +15,9 @@ on:
 
 jobs:
   claim:
-    runs-on: ubuntu-latest
+    # ubuntu-latest は Ubuntu 26 へ移行中で、現在の Playwright の
+    # Chromium 依存パッケージと互換性を保つため Ubuntu 24.04 に固定します。
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       # GitHub Actions 側の Node.js 20 警告を避けるため、Node.js 24 実行を明示します。
